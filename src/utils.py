@@ -43,8 +43,8 @@ def set_logo_and_page_config():
     """
     Sets the Airtable logo image and page config.
     """
-    im = Image.open("src/utilities/ideastorm.png")
-    st.set_page_config(page_title="IdeaStorm", page_icon=im, layout="wide")
+   
+    st.set_page_config(page_title="IdeaStorm", page_icon="💡", layout="wide")
     st.markdown("# IdeaStorm")
 
 def set_openai_api_key(api_key: str):
