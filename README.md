@@ -1,12 +1,13 @@
-# Airtable Question-and-Answer
+# IdeaStorm
 
-🤖 Ask questions to your Airtable base in natural language 🤖
+Ideastorm is an AI-powered chat platform designed to spark creativity and generate fresh ideas. By configuring two distinct generative AI agents with unique names, descriptions, and tool access, users can initiate engaging discussions on any given topic. Each agent's distinct experiences, characteristics, and tools lead to a dynamic conversation that offers new perspectives and insights.
 
-💪 Built with [LangChain](https://github.com/hwchase17/langchain) & [Streamlit](https://streamlit.io/)
+This versatile platform is perfect for marketing teams seeking to brainstorm innovative campaigns, as well as design and development teams looking for fresh concepts. Ideastorm's unique approach to idea generation sets it apart from traditional brainstorming methods, as it harnesses the power of AI to simulate thought-provoking conversations between two AI agents.
 
-<img width="700" alt="Screenshot 2023-05-23 at 5 21 09 PM" src="https://github.com/ikram-shah/airtable-qna/assets/17762967/2d1efbdc-e8bb-41f1-972d-fba6abe9ff1f">
+<img width="1511" alt="image" src="https://github.com/ikram-shah/ideastorm/assets/17762967/3d076952-52dc-4a04-898d-0d28c349874e">
 
-https://airtable-qna.streamlit.app
+
+https://ideastorm.streamlit.app
 
 
 ### 🌲 Environment Setup
@@ -20,8 +21,6 @@ streamlit run src/main.py
 ```
 
 ### 🔑 Requirements to try
+[OpenAI API Key](https://platform.openai.com/account/api-keys)
 
-1. [OpenAI API Key](https://platform.openai.com/account/api-keys)
-2. [Airtable Personal Access Token](https://airtable.com/developers/web/guides/personal-access-tokens#creating-a-token)
-3. [Airtable Base URL](https://www.highviewapps.com/kb/where-can-i-find-the-airtable-base-id-and-table-id/)
 
