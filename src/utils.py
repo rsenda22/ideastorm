@@ -3,78 +3,33 @@ Utility functions
 """
 
 import re
-from io import BytesIO
 from PIL import Image
-import tempfile
 import streamlit as st
-import requests
 import pandas as pd
 
-from langchain.agents import create_csv_agent
+from typing import List, Dict, Callable
+from langchain.chains import ConversationChain
+from langchain.chat_models import ChatOpenAI
 from langchain.llms import OpenAI
+from langchain.memory import ConversationBufferMemory
+from langchain.prompts.prompt import PromptTemplate
+from langchain.schema import (
+    AIMessage,
+    HumanMessage,
+    SystemMessage,
+    BaseMessage,
+)
 
-from pyairtable import Table
-
-airtable_logo_url = "https://seeklogo.com/images/A/airtable-logo-216B9AF035-seeklogo.com.png"
-
-def extract_ids_from_base_url(base_url):
-    """
-    Extract base and table ID or name from the base URL using regular expressions
-    """
-    pattern = r'https://airtable.com/([\w\d]+)/(.*?)(?:/|$)'
-    match = re.match(pattern, base_url)
-  
-    if match:
-        base_id = match.group(1)
-        table_id = match.group(2)
-
-        return dict(base_id=base_id, table_id=table_id)
-    else:
-        raise ValueError("Invalid base URL")
-
-def airtable_to_csv():
-    """
-    Convert Airtable contents into csv
-    """
-    access_token = st.session_state["AIRTABLE_PAT"]
-    
-    # Extract the base and table ID from the base URL
-    ids_from_url = extract_ids_from_base_url(st.session_state["AIRTABLE_URL"]) 
-    base_id, table_id = ids_from_url['base_id'], ids_from_url['table_id']
-    
-    # Initialize Airtable Python SDK
-    table = Table(access_token, base_id, table_id)
-
-    # Get all records from the table
-    all_records = table.all()
-
-    # Extract the data from the JSON response and create a pandas DataFrame
-    rows = []
-    for record in all_records:
-        row = record['fields']
-        row['id'] = record['id']
-        rows.append(row)
-    df = pd.DataFrame(rows)
-
-    with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
-        df.to_csv(tmp_file.name, index=False)
-
-    print(tmp_file.name)
-    return tmp_file.name
+from langchain.agents import Tool
+from langchain.agents import initialize_agent
+from langchain.agents import AgentType
+from langchain.agents import load_tools
 
 def clear_submit():
     """
     Clears the 'submit' value in the session state.
     """
     st.session_state["submit"] = False
-
-def run_agent(file_name, query):
-    """
-    Runs the agent on the given file with the specified query.
-    """
-    openai_key = st.session_state["OPENAI_API_KEY"]
-    agent = create_csv_agent(OpenAI(temperature=0, openai_api_key=openai_key), file_name, verbose=True)
-    return agent.run(query).__str__()
 
 def validate_api_key(api_key_input):
     """
@@ -84,57 +39,174 @@ def validate_api_key(api_key_input):
     api_key_valid = re.match(api_key_regex, api_key_input) is not None
     return api_key_valid
 
-def validate_pat(airtable_pat_input):
-    """
-    Validates the provided Airtable personal access token (PAT).
-    """
-    airtable_pat_regex = r"^pat"
-    airtable_pat_valid = re.match(airtable_pat_regex, airtable_pat_input) is not None
-    return airtable_pat_valid
-
-def validate_base_url(airtable_base_url_input):
-    """
-    Validates the provided Airtable base URL.
-    """
-    airtable_base_url_regex = r"^https:\/\/airtable.com\/app[^\/]+\/tbl[^\/]"
-    airtable_base_url_valid = re.match(airtable_base_url_regex, airtable_base_url_input) is not None
-    return airtable_base_url_valid
-
 def set_logo_and_page_config():
     """
     Sets the Airtable logo image and page config.
     """
-    response = requests.get(airtable_logo_url)
-    im = Image.open(BytesIO(response.content))
-    st.set_page_config(page_title="Airtable-QA", page_icon=im, layout="wide")
-    st.image(airtable_logo_url, width=50)
-    st.header("Airtable-QA")
+    im = Image.open("src/utilities/ideastorm.png")
+    st.set_page_config(page_title="IdeaStorm", page_icon=im, layout="wide")
+    st.markdown("# IdeaStorm")
+
+def set_openai_api_key(api_key: str):
+    """
+    Sets the OpenAI API key in the session state.
+    """
+    st.session_state["OPENAI_API_KEY"] = api_key
+
+class DialogueAgent:
+    def __init__(
+        self,
+        name: str,
+        system_message: SystemMessage,
+        model: ChatOpenAI,
+    ) -> None:
+        self.name = name
+        self.system_message = system_message
+        self.model = model
+        self.prefix = f"{self.name}: "
+        self.reset()
+        
+    def reset(self):
+        self.message_history = ["Here is the conversation so far."]
+
+    def send(self) -> str:
+        """
+        Applies the chatmodel to the message history
+        and returns the message string
+        """
+        message = self.model(
+            [
+                self.system_message,
+                HumanMessage(content="\n".join(self.message_history + [self.prefix])),
+            ]
+        )
+        return message.content
+
+    def receive(self, name: str, message: str) -> None:
+        """
+        Concatenates {message} spoken by {name} into message history
+        """
+        self.message_history.append(f"{name}: {message}")
+
+
+class dialogue_simulator:
+    def __init__(
+        self,
+        agents: List[DialogueAgent],
+        selection_function: Callable[[int, List[DialogueAgent]], int],
+    ) -> None:
+        self.agents = agents
+        self._step = 0
+        self.select_next_speaker = selection_function
+        
+    def reset(self):
+        for agent in self.agents:
+            agent.reset()
+
+    def inject(self, name: str, message: str):
+        """
+        Initiates the conversation with a {message} from {name}
+        """
+        for agent in self.agents:
+            agent.receive(name, message)
+
+        # increment time
+        self._step += 1
+
+    def step(self) -> tuple[str, str]:
+        # 1. choose the next speaker
+        speaker_idx = self.select_next_speaker(self._step, self.agents)
+        speaker = self.agents[speaker_idx]
+
+        # 2. next speaker sends message
+        message = speaker.send()
+
+        # 3. everyone receives message
+        for receiver in self.agents:
+            receiver.receive(speaker.name, message)
+
+        # 4. increment time
+        self._step += 1
+
+        return speaker.name, message
     
-def populate_markdown():
+class dialogue_agent_with_tools(DialogueAgent):
+    def __init__(
+        self,
+        name: str,
+        system_message: SystemMessage,
+        model: ChatOpenAI,
+        tool_names: List[str],
+        **tool_kwargs,
+    ) -> None:
+        super().__init__(name, system_message, model)
+        self.tools = load_tools(tool_names, **tool_kwargs)
+
+    def send(self) -> str:
+        """
+        Applies the chatmodel to the message history
+        and returns the message string
+        """
+        agent_chain = initialize_agent(
+            self.tools, 
+            self.model, 
+            agent=AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION, 
+            verbose=True, 
+            memory=ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+        )
+        message = AIMessage(content=agent_chain.run(
+            input="\n".join([
+                self.system_message.content] + \
+                self.message_history + \
+                [self.prefix])))
+        
+        return message.content
+
+
+
+agent_descriptor_system_message = SystemMessage(
+    content="You can add detail to the description of the conversation participant.")
+
+def generate_agent_description(name, conversation_description):
+    agent_specifier_prompt = [
+        agent_descriptor_system_message,
+        HumanMessage(content=
+            f"""{conversation_description}
+            Please reply with a creative description of {name}, in {st.session_state.get("WORD_LIMIT")} words or less. 
+            Speak directly to {name}.
+            Give them a point of view.
+            Do not add anything else."""
+            )
+    ]
+    agent_description = ChatOpenAI(model_name=st.session_state.get("OPENAI_MODEL_CHOSEN"), temperature=1.0, openai_api_key=st.session_state.get("OPENAI_API_KEY"))(agent_specifier_prompt).content
+    return agent_description
+        
+def generate_system_message(name, description, tools, conversation_description):
+    return f"""{conversation_description}
+    
+    Your name is {name}.
+
+    Your description is as follows: {description}
+
+    Your goal is to persuade your conversation partner of your point of view.
+
+    DO look up information with your tool to refute your partner's claims.
+    DO cite your sources.
+
+    DO NOT fabricate fake citations.
+    DO NOT cite any source that you did not look up.
+
+    Do not add anything else.
+
+    Stop speaking the moment you finish speaking from your perspective.
     """
-    Populates markdown for sidebar.
-    """
-    st.markdown(
-            "## How to use\n"
-            "1. Enter your [OpenAI API key](https://platform.openai.com/account/api-keys) below 🔑\n" 
-            "2. Enter your Airtable Personal Access Token & Base URL 🔑\n"
-            "3. Ask any question that can be answered from Airtable Base💬\n")
-    api_key_input = st.text_input(
-            "OpenAI API Key",
-            type="password",
-            placeholder="sk-...",
-            help="You can get your API key from https://platform.openai.com/account/api-keys", 
-            value=st.session_state.get("OPENAI_API_KEY", ""))
-    airtable_pat_input = st.text_input(
-            "Airtable Personal Access Token",
-            type="password",
-            placeholder="pat...",
-            help="You can get your Airtable PAT from https://airtable.com/developers/web/guides/personal-access-tokens#creating-a-token",
-            value=st.session_state.get("AIRTABLE_PAT", ""))
-    airtable_base_url_input = st.text_input(
-            "Airtable Base URL",
-            type="default",
-            placeholder="https://airtable.com/app.../tbl...",
-            help="You can get your Airtable Base URL by simply copy pasting the URL",
-            value=st.session_state.get("AIRTABLE_URL", ""))
-    return api_key_input, airtable_pat_input, airtable_base_url_input
+
+def select_next_speaker(step: int, agents: List[DialogueAgent]) -> int:
+    idx = (step) % len(agents)
+    return idx
+
+def check_all_config():
+    if st.session_state.get("AGENT1_NAME") and st.session_state.get("AGENT1_DESCRIPTION")  and st.session_state.get("AGENT2_NAME")  and st.session_state.get("AGENT2_DESCRIPTION")  and st.session_state.get("WORD_LIMIT")  and st.session_state.get("TALKBACK_LIMIT") and st.session_state.get("OPENAI_MODEL_CHOSEN") and st.session_state.get("OPENAI_API_KEY"):
+        return True
+    else:
+        return False
